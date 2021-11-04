@@ -55,7 +55,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self):
         super(MultiHeadAttention, self).__init__()
         ## 输入进来的QKV是相等的，我们会使用映射linear做一个映射得到参数矩阵Wq, Wk,Wv
-        self.W_Q = nn.Linear(d_model, d_k * n_heads)
+        self.W_Q = nn.Linear(d_model, d_k * n_heads) #512x64x8
         self.W_K = nn.Linear(d_model, d_k * n_heads)
         self.W_V = nn.Linear(d_model, d_v * n_heads)
         self.linear = nn.Linear(n_heads * d_v, d_model)
@@ -63,13 +63,13 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, Q, K, V, attn_mask):
 
-        ## 这个多头分为这几个步骤，首先映射分头，然后计算atten_scores，然后计算atten_value;
-        ##输入进来的数据形状： Q: [batch_size x len_q x d_model], K: [batch_size x len_k x d_model], V: [batch_size x len_k x d_model]
-        residual, batch_size = Q, Q.size(0)
+        # 这个多头分为这几个步骤，首先映射分头，然后计算atten_scores，然后计算atten_value;
+        #输入进来的数据形状： Q: [batch_size x len_q x d_model], K: [batch_size x len_k x d_model], V: [batch_size x len_k x d_model]
+        residual, batch_size = Q, Q.size(0) # size() 分别取1x5x512中的一个维度数，比如size(1)就是5
         # (B, S, D) -proj-> (B, S, D) -split-> (B, S, H, W) -trans-> (B, H, S, W)
 
-        ##下面这个就是先映射，后分头；一定要注意的是q和k分头之后维度是一致额，所以一看这里都是dk
-        q_s = self.W_Q(Q).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # q_s: [batch_size x n_heads x len_q x d_k]
+        #下面这个就是先映射，后分头；一定要注意的是q和k分头之后维度是一致额，所以一看这里都是dk
+        q_s = self.W_Q(Q).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # q_s: [batch_size x n_heads x len_q x d_k] ::QxW_Q::1x5x512 x 512x64x8::1x5x64x8::1x5x8x64(view)::1x8x5x64(transpose)
         k_s = self.W_K(K).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # k_s: [batch_size x n_heads x len_k x d_k]
         v_s = self.W_V(V).view(batch_size, -1, n_heads, d_v).transpose(1,2)  # v_s: [batch_size x n_heads x len_k x d_v]
 
@@ -159,7 +159,7 @@ class EncoderLayer(nn.Module):
         self.pos_ffn = PoswiseFeedForwardNet()
 
     def forward(self, enc_inputs, enc_self_attn_mask):
-        ## 下面这个就是做自注意力层，输入是enc_inputs，形状是[batch_size x seq_len_q x d_model] 需要注意的是最初始的QKV矩阵是等同于这个输入的，去看一下enc_self_attn函数 6.
+        #下面这个就是做自注意力层，输入是enc_inputs，形状是[batch_size x seq_len_q x d_model] 需要注意的是最初始的QKV矩阵是等同于这个输入的，去看一下enc_self_attn函数 6.
         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) # enc_inputs to same Q,K,V
         enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
         return enc_outputs, attn
@@ -175,15 +175,15 @@ class Encoder(nn.Module):
         self.layers = nn.ModuleList([EncoderLayer() for _ in range(n_layers)]) ## 使用ModuleList对多个EncoderLayer进行堆叠，因为后续的encoder并没有使用词向量和位置编码，所以抽离出来；
 
     def forward(self, enc_inputs):
-        ## 这里我们的 enc_inputs 形状是： [batch_size x source_len]
+        # # 这里我们的 enc_inputs 形状是： [batch_size x source_len]
 
-        ## 下面这个代码通过src_emb，进行索引定位，enc_outputs输出形状是[batch_size, src_len, d_model]
+        # # 下面这个代码通过src_emb，进行索引定位，enc_outputs输出形状是[batch_size, src_len, d_model]
         enc_outputs = self.src_emb(enc_inputs)
 
-        ## 这里就是位置编码，把两者相加放入到了这个函数里面，从这里可以去看一下位置编码函数的实现；3.
+        # # 这里就是位置编码，把两者相加放入到了这个函数里面，从这里可以去看一下位置编码函数的实现；3.
         enc_outputs = self.pos_emb(enc_outputs.transpose(0, 1)).transpose(0, 1)
 
-        ##get_attn_pad_mask是为了得到句子中pad的位置信息，给到模型后面，在计算自注意力和交互注意力的时候去掉pad符号的影响，去看一下这个函数 4.
+        # #get_attn_pad_mask是为了得到句子中pad的位置信息，给到模型后面，在计算自注意力和交互注意力的时候去掉pad符号的影响，去看一下这个函数 4.
         enc_self_attn_mask = get_attn_pad_mask(enc_inputs, enc_inputs)
         enc_self_attns = []
         for layer in self.layers:
@@ -222,17 +222,17 @@ class Decoder(nn.Module):
         dec_outputs = self.tgt_emb(dec_inputs)  # [batch_size, tgt_len, d_model]
         dec_outputs = self.pos_emb(dec_outputs.transpose(0, 1)).transpose(0, 1) # [batch_size, tgt_len, d_model]
 
-        ## get_attn_pad_mask 自注意力层的时候的pad 部分
+        # # get_attn_pad_mask 自注意力层的时候的pad 部分
         dec_self_attn_pad_mask = get_attn_pad_mask(dec_inputs, dec_inputs)
 
-        ## get_attn_subsequent_mask 这个做的是自注意层的mask部分，就是当前单词之后看不到，使用一个上三角为1的矩阵
+        # # get_attn_subsequent_mask 这个做的是自注意层的mask部分，就是当前单词之后看不到，使用一个上三角为1的矩阵
         dec_self_attn_subsequent_mask = get_attn_subsequent_mask(dec_inputs)
 
-        ##两个矩阵相加，大于0的为1，不大于0的为0，为1的是mask的部分，在之后就会被fill到无限小
+        # #两个矩阵相加，大于0的为1，不大于0的为0，为1的是mask的部分，在之后就会被fill到无限小
         dec_self_attn_mask = torch.gt((dec_self_attn_pad_mask + dec_self_attn_subsequent_mask), 0)
 
 
-        ## 这个做的是交互注意力机制中的mask矩阵，enc的输入是k，我去看这个k里面哪些是pad符号，给到后面的模型；注意哦，我q肯定也是有pad符号，但是这里我不在意的，之前说了好多次了哈
+        # # 这个做的是交互注意力机制中的mask矩阵，enc的输入是k，我去看这个k里面哪些是pad符号，给到后面的模型；注意哦，我q肯定也是有pad符号，但是这里我不在意的，之前说了好多次了哈
         dec_enc_attn_mask = get_attn_pad_mask(dec_inputs, enc_inputs)
 
         dec_self_attns, dec_enc_attns = [], []
@@ -251,16 +251,16 @@ class Transformer(nn.Module):
         self.decoder = Decoder()  ## 解码层
         self.projection = nn.Linear(d_model, tgt_vocab_size, bias=False) ## 输出层 d_model 是我们解码层每个token输出的维度大小，之后会做一个 tgt_vocab_size 大小的softmax
     def forward(self, enc_inputs, dec_inputs):
-        ## 这里有两个数据进行输入，一个是enc_inputs 形状为[batch_size, src_len]，主要是作为编码段的输入，一个dec_inputs，形状为[batch_size, tgt_len]，主要是作为解码端的输入
+        # # 这里有两个数据进行输入，一个是enc_inputs 形状为[batch_size, src_len]，主要是作为编码段的输入，一个dec_inputs，形状为[batch_size, tgt_len]，主要是作为解码端的输入
 
-        ## enc_inputs作为输入 形状为[batch_size, src_len]，输出由自己的函数内部指定，想要什么指定输出什么，可以是全部tokens的输出，可以是特定每一层的输出；也可以是中间某些参数的输出；
-        ## enc_outputs就是主要的输出，enc_self_attns这里没记错的是QK转置相乘之后softmax之后的矩阵值，代表的是每个单词和其他单词相关性；
+        # # enc_inputs作为输入 形状为[batch_size, src_len]，输出由自己的函数内部指定，想要什么指定输出什么，可以是全部tokens的输出，可以是特定每一层的输出；也可以是中间某些参数的输出；
+        # # enc_outputs就是主要的输出，enc_self_attns这里没记错的是QK转置相乘之后softmax之后的矩阵值，代表的是每个单词和其他单词相关性；
         enc_outputs, enc_self_attns = self.encoder(enc_inputs)
 
-        ## dec_outputs 是decoder主要输出，用于后续的linear映射； dec_self_attns类比于enc_self_attns 是查看每个单词对decoder中输入的其余单词的相关性；dec_enc_attns是decoder中每个单词对encoder中每个单词的相关性；
+        # # dec_outputs 是decoder主要输出，用于后续的linear映射； dec_self_attns类比于enc_self_attns 是查看每个单词对decoder中输入的其余单词的相关性；dec_enc_attns是decoder中每个单词对encoder中每个单词的相关性；
         dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs)
 
-        ## dec_outputs做映射到词表大小
+        # # dec_outputs做映射到词表大小
         dec_logits = self.projection(dec_outputs) # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
         return dec_logits.view(-1, dec_logits.size(-1)), enc_self_attns, dec_self_attns, dec_enc_attns
 
