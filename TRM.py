@@ -39,14 +39,14 @@ class ScaledDotProductAttention(nn.Module):
         super(ScaledDotProductAttention, self).__init__()
 
     def forward(self, Q, K, V, attn_mask):
-        ## 输入进来的维度分别是 [batch_size x n_heads x len_q x d_k]  K： [batch_size x n_heads x len_k x d_k]  V: [batch_size x n_heads x len_k x d_v]
-        ##首先经过matmul函数得到的scores形状是 : [batch_size x n_heads x len_q x len_k]
+        # 输入进来的维度分别是 [batch_size x n_heads x len_q x d_k]  K： [batch_size x n_heads x len_k x d_k]  V: [batch_size x n_heads x len_k x d_v] ::1x8x5x64
+        # 首先经过matmul函数得到的scores形状是 : [batch_size x n_heads x len_q x len_k] ::1x8x5x5
         scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k)
 
-        ## 然后关键词地方来了，下面这个就是用到了我们之前重点讲的attn_mask，把被mask的地方置为无限小，softmax之后基本就是0，对q的单词不起作用
-        scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
-        attn = nn.Softmax(dim=-1)(scores)
-        context = torch.matmul(attn, V)
+        # 然后关键词地方来了，下面这个就是用到了我们之前重点讲的attn_mask，把被mask的地方置为无限小，softmax之后基本就是0，对q的单词不起作用
+        scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one. 1x8x5x5最后一列填充成极小值，因为其对应的是PAD
+        attn = nn.Softmax(dim=-1)(scores) #1x8x5x5的每一行做softmax,最后一列由于补了极小值，所以softmax后概率约等于0
+        context = torch.matmul(attn, V) #1x8x5x5 dot 1x8x5x64
         return context, attn
 
 
@@ -73,16 +73,15 @@ class MultiHeadAttention(nn.Module):
         k_s = self.W_K(K).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # k_s: [batch_size x n_heads x len_k x d_k]
         v_s = self.W_V(V).view(batch_size, -1, n_heads, d_v).transpose(1,2)  # v_s: [batch_size x n_heads x len_k x d_v]
 
-        ## 输入进行的attn_mask形状是 batch_size x len_q x len_k，然后经过下面这个代码得到 新的attn_mask : [batch_size x n_heads x len_q x len_k]，就是把pad信息重复了n个头上
-        attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1)
+        # 输入进行的attn_mask形状是 batch_size x len_q x len_k，然后经过下面这个代码得到 新的attn_mask : [batch_size x n_heads x len_q x len_k]，就是把pad信息重复了n个头上
+        attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1) #1x5x5->1x8x5x5
 
-
-        ##然后我们计算 ScaledDotProductAttention 这个函数，去7.看一下
-        ## 得到的结果有两个：context: [batch_size x n_heads x len_q x d_v], attn: [batch_size x n_heads x len_q x len_k]
+        # 然后我们计算 ScaledDotProductAttention 这个函数，去7.看一下
+        # 得到的结果有两个：context: [batch_size x n_heads x len_q x d_v]::1x8x5x64, attn: [batch_size x n_heads x len_q x len_k]::1x8x5x5最后一列是0
         context, attn = ScaledDotProductAttention()(q_s, k_s, v_s, attn_mask)
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, n_heads * d_v) # context: [batch_size x len_q x n_heads * d_v]
         output = self.linear(context)
-        return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model]
+        return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model] ???
 
 
 ## 8. PoswiseFeedForwardNet
@@ -155,8 +154,8 @@ class PositionalEncoding(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self):
         super(EncoderLayer, self).__init__()
-        self.enc_self_attn = MultiHeadAttention()
-        self.pos_ffn = PoswiseFeedForwardNet()
+        self.enc_self_attn = MultiHeadAttention() #多头注意力
+        self.pos_ffn = PoswiseFeedForwardNet()  #前馈
 
     def forward(self, enc_inputs, enc_self_attn_mask):
         #下面这个就是做自注意力层，输入是enc_inputs，形状是[batch_size x seq_len_q x d_model] 需要注意的是最初始的QKV矩阵是等同于这个输入的，去看一下enc_self_attn函数 6.
@@ -178,16 +177,16 @@ class Encoder(nn.Module):
         # # 这里我们的 enc_inputs 形状是： [batch_size x source_len]
 
         # # 下面这个代码通过src_emb，进行索引定位，enc_outputs输出形状是[batch_size, src_len, d_model]
-        enc_outputs = self.src_emb(enc_inputs)
+        enc_outputs = self.src_emb(enc_inputs) #[[1, 2, 3, 4, 0]] 1x5-->embedding后变成::1x5x512 每一行代表一个word的vect
 
         # # 这里就是位置编码，把两者相加放入到了这个函数里面，从这里可以去看一下位置编码函数的实现；3.
         enc_outputs = self.pos_emb(enc_outputs.transpose(0, 1)).transpose(0, 1)
 
         # #get_attn_pad_mask是为了得到句子中pad的位置信息，给到模型后面，在计算自注意力和交互注意力的时候去掉pad符号的影响，去看一下这个函数 4.
-        enc_self_attn_mask = get_attn_pad_mask(enc_inputs, enc_inputs)
+        enc_self_attn_mask = get_attn_pad_mask(enc_inputs, enc_inputs) #5x5最后一列是True，其他元素全是False，为什么是最后一列，不是最后一行
         enc_self_attns = []
         for layer in self.layers:
-            ## 去看EncoderLayer 层函数 5.
+            # 去看EncoderLayer 层函数 5.
             enc_outputs, enc_self_attn = layer(enc_outputs, enc_self_attn_mask)
             enc_self_attns.append(enc_self_attn)
         return enc_outputs, enc_self_attns
