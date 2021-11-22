@@ -1,6 +1,6 @@
 #coding:utf-8
 # 来源：整理自深兰NLP项目课:意图识别推理(最新版) -->已完成
-# 功能：使用先前训练好的模型，评判模型结果
+# 功能：使用先前训练好的模型，评判模型结果，利用模型预测
 # 备注：只实现了textRNN，是双向lstm; 有空可以实现TextCNN和TextRCNN
 
 import torch
@@ -67,7 +67,7 @@ def load_model(way = 'TextRNN'):
     parameter['dropout'] = 0
     model = eval(way+"(parameter).to(parameter['cuda'])")
     if way == 'TextRNN':
-        model.load_state_dict(torch.load('model-rnn.h5'))
+        model.load_state_dict(torch.load('model-rnn1.h5'))
     if way == 'TextCNN':
         model.load_state_dict(torch.load('model-cnn.h5'))
     if way == 'TextRCNN':
@@ -121,7 +121,19 @@ def batch_yield_predict(chars,parameter):
     device = parameter['cuda']
     return torch.from_numpy(np.array(batch_x)).to(device)#,torch.from_numpy(np.array(batch_y)).to(device).long()
 
+def predict(model,parameter,strs):
+    strs = strs.split()
+    strs = batch_yield_predict(strs,parameter)
+    outputs = model(strs)
+    predicted_prob,predicted_index = torch.max(F.softmax(outputs, 1), 1)
+    return predicted_index.item(),predicted_prob.item()
 
 if __name__== "__main__":
-    
-    toEstimate('TextRNN')
+    if False:#模型评测
+        ret=toEstimate('TextRNN')
+        print(ret)
+    else:#预测
+        parameter, model, _ = load_model('TextRNN')
+        test = 'nnt 演 过 那 些 戏'
+        index,propb = predict(model,parameter,test)     
+        print(f"predict:{index}")

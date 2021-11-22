@@ -1,6 +1,6 @@
 #coding:utf-8
-# 来源：整理自深兰NLP项目课:第一次进行实体识别-->待完成
-# 功能：测试实体识别模型
+# 来源：整理自深兰NLP项目课:第一次进行实体识别-->完成
+# 功能：测试实体识别模型，利用模型预测
 # 备注：
 
 from collections import defaultdict
@@ -11,11 +11,11 @@ import torch.nn.functional as F # pytorch 激活函数的类
 import pickle as pk
 import pandas as pd
 from tqdm import tqdm
-from model_zoo import *
+from model_zoo import * #模型定义
 
 # 此处是加载对应的模型和配置文件
 def load_model(model_name):
-    parameter = pk.load(open('parameter.pkl','rb'))
+    parameter = pk.load(open('params_entityRecog.pkl','rb'))
     #     parameter['device'] = torch.device('cpu')
     # 因为bert模型需要加载他对应的config文件，因此此处进行了一定的区分
     if 'bert' in model_name:
@@ -24,7 +24,7 @@ def load_model(model_name):
         else:
             model = eval(model_name+"(config,parameter).to(parameter['device'])")
     else:
-        model = eval(model_name+"(parameter).to(parameter['device'])")
+        model = eval(model_name+"(parameter).to(parameter['device'])") #这里必须要有模型定义，定义在model_zoo
     model.load_state_dict(torch.load(model_name+'.h5'))
     model.eval() 
     return model,parameter
@@ -194,9 +194,10 @@ def keyword_predict(input):
 
 if __name__=='__main__':
     
-    if True: #模型评价
-        eval_model('bilstm_crf')
-    else:
+    if False: #模型评价
+        ret=eval_model('bilstm_crf')
+        print(ret)
+    else: #预测
         model,parameter = load_model('bilstm_crf')
         # tokenizer = tokenizer_class.from_pretrained("prev_trained_model")
         model = model.to(parameter['device'])
