@@ -204,11 +204,11 @@ if __name__== "__main__":
     # 开始训练-------------------------------------------------------
     loss_cal = []
     min_loss = float('inf')
-    count=0
+    #count=0
     with writer:
-        #while 1:
-        while count <10:
-            count=count+1
+        while 1:
+        #while count <10:
+            #count=count+1
             seqs,label,keys,epoch = next(train_yield)
             if not keys:
                 break
