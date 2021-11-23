@@ -144,9 +144,9 @@ if __name__== "__main__":
     
 
 #准备数据====================================================================================
-    if os.path.exists('dataSet.pkl') and os.path.exists('parameter.pkl'):
-        [train_chars,test_chars,train_labels,test_labels] = pk.load(open('dataSet.pkl','rb'))
-        parameter = pk.load(open('parameter.pkl','rb'))
+    if os.path.exists('dataSet_textClssi.pkl') and os.path.exists('parameter_textClssi.pkl'):
+        [train_chars,test_chars,train_labels,test_labels] = pk.load(open('dataSet_textClssi.pkl','rb'))
+        parameter = pk.load(open('parameter_textClssi.pkl','rb'))
         device = torch.device('cpu')
         parameter['cuda'] = device
     else:
@@ -155,8 +155,8 @@ if __name__== "__main__":
         
         # 按比例划分训练集和测试集
         train_chars,test_chars,train_labels,test_labels = train_test_split(chars_src,labels_src, test_size=0.2, random_state=42)
-        pk.dump([train_chars,test_chars,train_labels,test_labels],open('dataSet.pkl','wb'))
-        pk.dump(parameter,open('parameter.pkl','wb'))
+        pk.dump([train_chars,test_chars,train_labels,test_labels],open('dataSet_textClssi.pkl','wb'))
+        pk.dump(parameter,open('parameter_textClssi.pkl','wb'))
     
     train_yield = batch_yield(train_chars,train_labels,parameter)
     
