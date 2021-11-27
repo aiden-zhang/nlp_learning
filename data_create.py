@@ -6,6 +6,69 @@
 import pandas as pd
 import numpy as np
 import os
+from random import choice
+
+def build_seq(data,label,seq1,seq2,intent,mode = 1,num = 0,output = None):
+    '''
+    data：代表前面处理的实体列表
+    label：代表该实体所代表的的标签如km1,kg,author...
+    seq1：代表实体前置的语料
+    seq2：代表实体后置的语料
+    intent：代表该生成语料的意图
+    mode：1代表遍历，2代表随机提取
+    num：如果mode=2，num则代表随机生成num个句子
+    '''
+    seqs_intent,labels_intent,seqs_ner,labels_ner = [],[],[],[]
+    seqs_intent.append(list(seq1)+[label]+list(seq2)) #构造出类似: #[['老', '师', 'km1', '有', '哪', '些', '重', '要', '的', '课', '程']]
+    labels_intent.append(intent) 
+    if mode == 1:
+        for i in data[label]: #'高中地理'
+            seqs_ner.append(list((seq1+'%s'+seq2)%(i))) #把类似km1这样的标签换成正在的实体->[['老', '师', '高', '中', '地', '理', '有', '哪', '些', '重', '要', '的', '课', '程']]
+            if len(i) > 2:
+                labels_ner.append(['O']*len(seq1)+["B-"+label]+(len(i)-2)*['I-'+label]+['E-'+label]+['O']*len(seq2)) #对应上一句: [['O', 'O', 'B-km1', 'I-km1', 'I-km1', 'E-km1', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']]
+            if len(i) == 2:
+                labels_ner.append(['O']*len(seq1)+["B-"+label]+['E-'+label]+['O']*len(seq2))
+            if len(i) < 2:
+                labels_ner.append(['O']*len(seq1)+['S-'+label]+['O']*len(seq2))
+    if mode == 2:
+        for i in range(num):
+            i = choice(data[label])
+            seqs_ner.append(list((seq1+'%s'+seq2)%(i)))
+            if len(i) > 2:
+                labels_ner.append(['O']*len(seq1)+["B-"+label]+(len(i)-2)*['I-'+label]+['E-'+label]+['O']*len(seq2))
+            if len(i) == 2:
+                labels_ner.append(['O']*len(seq1)+["B-"+label]+['E-'+label]+['O']*len(seq2))
+            if len(i) < 2:
+                labels_ner.append(['O']*len(seq1)+['S-'+label]+['O']*len(seq2))
+    if output is None:
+        return seqs_intent,labels_intent,seqs_ner,labels_ner
+    else:
+        output[0] += seqs_intent
+        output[1] += labels_intent
+        output[2] += seqs_ner
+        output[3] += labels_ner
+
+def create_dataset(seqs,out_put,label,intent,keys = 1,num = 100): 
+    seq1_list,seq2_list = seqs #拆分
+    if keys == 1:
+        for seq1 in seq1_list:
+            for seq2 in seq2_list:
+                build_seq(data_new,label = label, seq1 = seq1, seq2 = seq2, 
+                          intent = intent, mode = 1, num = 10,output = out_put)
+    else:
+        iffirst = True
+        mode = 1
+        for seq1 in seq1_list:
+            for seq2 in seq2_list:
+                if not iffirst:
+                    mode = 2
+                iffirst = False
+                build_seq(data_new,
+                        label = label,
+                        seq1 = seq1,seq2 = seq2,
+                        intent = intent,mode = mode, num = num,
+                 output = out_put)
+
 
 if __name__=='__main__':
 
@@ -232,74 +295,15 @@ if __name__=='__main__':
             else:
                 data_new[label].append(name)
             
-    [[len(data_new[i]),i] for i in data_new],sum([len(data_new[i]) for i in data_new])
+    #data_new::{'km1': ['高中历史', '高中生物', '高中地理', '高中政治'], 'km2': ['科学思维常识', '稳态与环境', '公...]}
+    count = 0
+    for i in data_new:
+        print(len(data_new[i]) , i) #打印看每个标签下有多少实体
+        count = count + len(data_new[i])
+        
+    print(count) #总实体数
     
-    
-    from random import choice
-    def build_seq(data,label,seq1,seq2,intent,mode = 1,num = 0,output = None):
-        '''
-        data：代表前面处理的实体列表
-        label：代表该实体所代表的的标签如km1
-        seq1：代表实体前置的语料
-        seq2：代表实体后置的语料
-        intent：代表该生成语料的意图
-        mode：1代表遍历，2代表随机提取
-        num：如果mode=2，num则代表随机生成num个句子
-        '''
-        seqs_intent,labels_intent,seqs_ner,labels_ner = [],[],[],[]
-        seqs_intent.append(list(seq1)+[label]+list(seq2))
-        labels_intent.append(intent)
-        if mode == 1:
-            for i in data[label]:
-                seqs_ner.append(list((seq1+'%s'+seq2)%(i)))
-                if len(i) > 2:
-                    labels_ner.append(['O']*len(seq1)+["B-"+label]+(len(i)-2)*['I-'+label]+['E-'+label]+['O']*len(seq2))
-                if len(i) == 2:
-                    labels_ner.append(['O']*len(seq1)+["B-"+label]+['E-'+label]+['O']*len(seq2))
-                if len(i) < 2:
-                    labels_ner.append(['O']*len(seq1)+['S-'+label]+['O']*len(seq2))
-        if mode == 2:
-            for i in range(num):
-                i = choice(data[label])
-                seqs_ner.append(list((seq1+'%s'+seq2)%(i)))
-                if len(i) > 2:
-                    labels_ner.append(['O']*len(seq1)+["B-"+label]+(len(i)-2)*['I-'+label]+['E-'+label]+['O']*len(seq2))
-                if len(i) == 2:
-                    labels_ner.append(['O']*len(seq1)+["B-"+label]+['E-'+label]+['O']*len(seq2))
-                if len(i) < 2:
-                    labels_ner.append(['O']*len(seq1)+['S-'+label]+['O']*len(seq2))
-        if output is None:
-            return seqs_intent,labels_intent,seqs_ner,labels_ner
-        else:
-            output[0] += seqs_intent
-            output[1] += labels_intent
-            output[2] += seqs_ner
-            output[3] += labels_ner
-    
-    def create_dataset(seqs,out_put,label,intent,keys = 1,num = 100):
-        seq1_list,seq2_list = seqs
-        if keys == 1:
-            for seq1 in seq1_list:
-                for seq2 in seq2_list:
-                    build_seq(data_new,
-                        label = label,
-                        seq1 = seq1,seq2 = seq2,
-                        intent = intent,mode = 1, num = 10,
-                     output = out_put)
-        else:
-            iffirst = True
-            mode = 1
-            for seq1 in seq1_list:
-                for seq2 in seq2_list:
-                    if not iffirst:
-                        mode = 2
-                    iffirst = False
-                    build_seq(data_new,
-                            label = label,
-                            seq1 = seq1,seq2 = seq2,
-                            intent = intent,mode = mode, num = num,
-                     output = out_put)
-                    
+    #第一次课是基于规则构造数据
     x_intent,y_intent,x_ner,y_ner = [],[],[],[]
     
     output = [x_intent,y_intent,x_ner,y_ner]
@@ -308,17 +312,17 @@ if __name__=='__main__':
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['有哪些重要的课程','有哪些重要的课','什么课比较重要','需要学什么课',
                  '有哪些课']
-    create_dataset([seq1_list,seq2_list],output,label,0)
+    create_dataset([seq1_list,seq2_list],output,label,0) #意图0 问km1的课程
     
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['有哪些重要的知识点','有哪些知识点需要注意','什么知识点比较重要',
                  '需要学什么那些知识点', '有哪些知识点','涉及到哪些知识点','包含哪些知识点']
-    create_dataset([seq1_list,seq2_list],output,label,1)
+    create_dataset([seq1_list,seq2_list],output,label,1) #意图1 问知识点
     
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['有哪些重要的例题需要掌握','有哪些例题需要注意','什么例题需要掌握',
                   '有哪些例题']
-    create_dataset([seq1_list,seq2_list],output,label,2)
+    create_dataset([seq1_list,seq2_list],output,label,2) #意图2 问例题
     
     
     label = 'km2'
@@ -326,31 +330,35 @@ if __name__=='__main__':
     seq2_list = ['是哪个学科的课程','是什么学科的']
     create_dataset([seq1_list,seq2_list],output,label,3)
     
+    
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['有哪些重要的知识点','有哪些知识点需要注意','什么知识点比较重要',
                  '需要学什么那些知识点', '有哪些知识点','涉及到哪些知识点','包含哪些知识点']
     create_dataset([seq1_list,seq2_list],output,label,4)
+    
     
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['有哪些重要的例题需要掌握','有哪些例题需要注意','什么例题需要掌握',
                  '有哪些例题']
     create_dataset([seq1_list,seq2_list],output,label,5)
     
+    
     label = 'kg'
     seq1_list = ['老师','','请问','你好']
-    seq2_list = ['是什么学科的','是哪个学科的知识点']
+    seq2_list = ['是什么学科的','是哪个学科的知识点'] #问kg属于哪个km2
     create_dataset([seq1_list,seq2_list],output,label,6,keys = 2)
     
     seq1_list = ['老师','','请问','你好']
-    seq2_list = ['是什么课程的','是哪个课程需要学习的知识点','是哪门课的']
+    seq2_list = ['是什么课程的','是哪个课程需要学习的知识点','是哪门课的']  #问kg属于哪个km1
     create_dataset([seq1_list,seq2_list],output,label,7,keys = 2)
     
+    
     seq1_list = ['老师','','请问','你好']
-    seq2_list = ['有哪些重要的例题需要掌握','有哪些例题需要注意','什么例题需要掌握',
+    seq2_list = ['有哪些重要的例题需要掌握','有哪些例题需要注意','什么例题需要掌握', #问kg对应的question有哪些
                  '有哪些例题']
     create_dataset([seq1_list,seq2_list],output,label,8,keys = 2)
     
-    ## 针对古诗的处理
+    #  针对古诗的处理
     label = 'author'
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['写过哪些诗句啊','有哪些诗','有哪些有名的诗句',
@@ -374,6 +382,7 @@ if __name__=='__main__':
                  ]
     create_dataset([seq1_list,seq2_list],output,label,12,keys = 2,num = 500)
     
+    
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['的翻译是'
                  ]
@@ -383,6 +392,7 @@ if __name__=='__main__':
     seq2_list = ['是什么类型的古诗'
                  ]
     create_dataset([seq1_list,seq2_list],output,label,14,keys = 2,num = 500)
+    
     
     seq1_list = ['老师','','请问','你好']
     seq2_list = ['出现在几年级的课程'
@@ -402,16 +412,20 @@ if __name__=='__main__':
                  ]
     create_dataset([seq1_list,seq2_list],output,label,17,keys = 1,num = 100)
     
-    len(x_intent),len(y_intent),len(x_ner),len(y_ner)
+    print( len(x_intent),len(y_intent),len(x_ner),len(y_ner) )
     
     import pickle as pk
     pk.dump([x_intent,y_intent,x_ner,y_ner],open('data-intent1-ner.pkl','wb'))
     
+    
     import pickle as pk
     [x_intent,y_intent,x_ner,y_ner] = pk.load(open('data-intent1-ner.pkl','rb'))
-    print('所构建的意图识别的数据有：',len(x_intent))
-    print('所构建意图识别数据的样例：\n',x_intent[:2],'\n',y_intent[:2])
-    print('所构建实体识别数据的样例：\n',x_ner[:2],'\n',y_ner[:2])    
+    print('所构建的意图识别的数据数量有: \n',len(x_intent),len(y_intent)) #203条分10多个类别，其实数据量肯定是不够的，这里只是演示方法
+    print('所构建的意图识别数据的样例：\n',x_intent[:2],'\n',y_intent[:2])
+    
+    print('所构建的实体识别的数据数量有：\n',len(x_ner),len(y_ner))  #42534条数据基本够了
+    print('所构建的实体识别数据的样例：\n',x_ner[:2],'\n',y_ner[:2])
+    
     
 #4  构建意图识别数据+++++++++++++++++++++++++++++++++++++++++++
     
@@ -423,7 +437,7 @@ if __name__=='__main__':
         if str(i) not in corpus_new:
             corpus_new[str(i)] = 1
     corpus = [eval(i) for i in list(corpus_new.keys())]
-    len(corpus),corpus[:2]
+    print(len(corpus),'\n', corpus[:2])
     
     # 针对于机器人个人属性数据的处理
     import xml.etree.ElementTree as et
@@ -476,14 +490,16 @@ if __name__=='__main__':
         
     data_new = [list(i) for i in data_new]
         
-    len(data_new),data_new[:2]
+    print(len(data_new), '\n', data_new[:2])
     
     # combine and save
-    data_x = x_intent+data_new+corpus
+    data_x = x_intent+data_new+corpus #所有语料加一起
     data_y = [0]*len(x_intent)+[1]*len(data_new)+[2]*len(corpus)
     pk.dump([data_x,data_y],open('data-intent0.pkl','wb')),data_x[:2],data_y[:2]    
     
-    #5  trash
+    
+    """
+#5  trash++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     x_intent,y_intent,x_ner,y_ner = [],[],[],[]
     
     def create_dataset(seq1_list,seq2_list,out_put):
@@ -613,3 +629,5 @@ if __name__=='__main__':
              output = [x_intent,y_intent,x_ner,y_ner])
             
     len(x_intent),len(y_intent),len(x_ner),len(y_ner)    
+    
+    """
