@@ -148,11 +148,11 @@ def eval_model(model_name):
 def keyword_predict(input):
     input = list(input)
 #     input_id = tokenizer.convert_tokens_to_ids(input)
-    input_id = itemgetter(*input)(parameter['word2ind'])
+    input_id = itemgetter(*input)(parameter['word2ind']) #汉字转数字索引
     input_id = input_id if type(input_id) == type(()) else (input_id,0)
     
-    predict = model.crf.decode(model(list2torch([input_id]).long().to(parameter['device'])))[0]
-    predict = itemgetter(*predict)(parameter['ind2key'])
+    predict = model.crf.decode(model(list2torch([input_id]).long().to(parameter['device'])))[0] #预测结果是标签的数字索引
+    predict = itemgetter(*predict)(parameter['ind2key']) #数字索引转标签
     print(predict)
     keys_list = []
     for ind,i in enumerate(predict):
@@ -184,7 +184,9 @@ def keyword_predict(input):
                 keys_list[-1][0] += input[ind]
                 keys_list[-1][1] += [i]
                 keys_list[-1][2] += [ind]
-                keys_list[-1][3] = True
+
+                keys_list[-1][3] = True  
+#keys_list:[['浙商银行', ['B-company', 'I-company', 'I-company', 'E-company'], [0, 1, 2, 3], True], ['叶老桂', ['B-name', 'I-name', 'E-name'], [9, 10, 11], True]]
             else:
                 if len(keys_list) > 0:
                     del keys_list[-1]
@@ -203,6 +205,6 @@ if __name__=='__main__':
         model = model.to(parameter['device'])
         
         test_text = '浙商银行企业信贷部叶老桂博士则从另一个角度对五道门槛进行了解读。叶老桂认为，对目前国内商业银行而言'
-        keyword_predict(test_text)        
-    
+        ret=keyword_predict(test_text)   
+        print(ret) #[['浙商银行', ['B-company', 'I-company', 'I-company', 'E-company'], [0, 1, 2, 3], True], ['叶老桂', ['B-name', 'I-name', 'E-name'], [9, 10, 11], True]]
     
