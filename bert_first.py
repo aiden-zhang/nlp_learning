@@ -1,6 +1,6 @@
 #coding:utf-8
 #第一次用bert构建动态词向量
-#第一步：获取数据并清洗
+#第一步：获取数据并清洗===============================================
 import jieba
 import pandas as pd
 from tqdm import tqdm
@@ -34,7 +34,7 @@ for i in tqdm(data4bert):
 data_after_cut[:10]
 
 
-#第二步：调整数据
+#第二步：调整数据=================================================================
 from collections import defaultdict
 from operator import itemgetter
 from copy import deepcopy
@@ -192,7 +192,7 @@ print(random_word(corpus[1][1],parameter),len(corpus) )#
 train_yield = batch_yield(corpus,parameter,32)
 ins,label,segment_label,next_label,epoch,keys = next(train_yield)
 
-#第三步bert构建
+#第三步bert构建=================================================================
 import torch.utils.data as Data
 from tqdm import tqdm
 import torch.nn as nn

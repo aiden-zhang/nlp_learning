@@ -4,13 +4,13 @@
 
 ## 文件结构
 
-#text_classification_first_train.py
+#text_classification_first_train.py 	
 	意图识别训练代码
 
 #text_classification_first_test.py   
 	意图识别模型评价与预测的代码
 	
-#entity_recognization_first_train.py 
+#entity_recognization_first_train.py 	
 	实体识别训练代码
 
 #entity_recognization_first_test.py  

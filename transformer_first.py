@@ -1,5 +1,7 @@
 
 #coding:utf-8
+
+#1  数据预处理===========================================
 ins = []
 outs = []
 num = 1000
@@ -209,3 +211,335 @@ else:
 data_set = batch_yield(parameter,np.array(ins),np.array(outs))
 batch_x,batch_y,batch_y2,x_len,y_len,y2_len,epoch,keys = next(data_set)
 batch_x.shape,batch_y.shape,x_len,y_len
+
+print(ins[0])
+print(outs[0])
+
+#2  模型构建===============================
+#2.1  位置层------------------------------------------
+import torch
+import math
+d_model = 768
+a = [round(1/(10000**(2*i/d_model)),7) for i in range(10)]
+b = list(torch.exp(torch.arange(0, 20, 2).float() * (-math.log(10000.0) / d_model)).numpy())
+print(a)
+print(b)
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, parameter):#d_model, dropout=0.1, max_len=200):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=parameter['dropout'])
+        d_model = parameter['d_model']
+        max_len = parameter['max_len']
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        # 位置向量的表示可以参考上图
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        '''
+        x: [seq_len, batch_size, d_model]
+        '''
+        # 词向量的编码加上位置向量
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+    
+def get_attn_pad_mask(q_len_list, k_len_list):
+    global device
+    len_q = max(q_len_list)
+    len_k = max(k_len_list)
+    batch_size = len(q_len_list)
+    pad_attn_mask =  torch.from_numpy(np.array([[False]*i+[True]*(len_k-i) for i in k_len_list])).unsqueeze(1)
+    return pad_attn_mask.expand(batch_size, len_q, len_k).byte().to(device)  # [batch_size, len_q, len_k]
+
+# have a test
+test = PositionalEncoding(parameter).to(device)
+mask = get_attn_pad_mask(x_len,x_len)
+batch_x.shape,test(batch_x).shape,mask.shape
+
+#2.2  block（multi-head self attention + Add & Normalize + Feed Forward Network）--------------
+
+class ScaledDotProductAttention(nn.Module):
+    def __init__(self,parameter):
+        super(ScaledDotProductAttention, self).__init__()
+        self.d_k = parameter['d_k']
+
+    def forward(self, Q, K, V, attn_mask):
+        '''
+        Q: [batch_size, n_heads, len_q, d_k]
+        K: [batch_size, n_heads, len_k, d_k]
+        V: [batch_size, n_heads, len_v(=len_k), d_v]
+        attn_mask: [batch_size, n_heads, seq_len, seq_len]
+        '''
+        # 基于上述公式进行点乘相似度
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k)
+        scores.masked_fill_(attn_mask, -1e9) 
+        # 经过softmax输出的是注意力或者说打分结果
+        attn = nn.Softmax(dim=-1)(scores)
+        # 与类似于原始输入相乘，来强化或者减弱其中的特征
+        context = torch.matmul(attn, V) # [batch_size, n_heads, len_q, d_v]
+        return context, attn
+    
+class MultiHeadAttention(nn.Module):
+    def __init__(self,parameter):
+        super(MultiHeadAttention, self).__init__()
+        device = parameter['device']
+        self.d_q,self.d_k,self.d_v,self.d_model,self.n_heads = parameter['d_q'],parameter['d_k'], \
+        parameter['d_v'],parameter['d_model'],parameter['n_heads']
+        self.W_Q = nn.Linear(self.d_model, self.d_q * self.n_heads, bias=False)
+        self.W_K = nn.Linear(self.d_model, self.d_k * self.n_heads, bias=False)
+        self.W_V = nn.Linear(self.d_model, self.d_v * self.n_heads, bias=False)
+        self.fc = nn.Linear(self.n_heads * self.d_v, self.d_model, bias=False)
+        self.sdp = ScaledDotProductAttention(parameter).to(device)
+        self.add_norm = nn.LayerNorm(self.d_model)
+        
+    def forward(self, input_Q, input_K, input_V, attn_mask):
+        '''
+        input_Q: [batch_size, len_q, d_model]
+        input_K: [batch_size, len_k, d_model]
+        input_V: [batch_size, len_v(=len_k), d_model]
+        attn_mask: [batch_size, seq_len, seq_len]
+        '''
+        # 所谓的多头自注意机制，就是输入的内容都一致，然后通过三个不同的线性变换得到我们的QKV，然后基于点乘相似度（点乘得分函数）
+        # 进行计算得到相应相应的注意力来强化或者减弱不同头的特征
+        residual, batch_size = input_Q, input_Q.size(0)
+        # 原始输入经过不同线性变化得到QKV
+        Q = self.W_Q(input_Q).view(batch_size, -1, self.n_heads, self.d_q).transpose(1,2)  # Q: [batch_size, n_heads, len_q, d_q]
+        K = self.W_K(input_K).view(batch_size, -1, self.n_heads, self.d_k).transpose(1,2)  # K: [batch_size, n_heads, len_k, d_k]
+        V = self.W_V(input_V).view(batch_size, -1, self.n_heads, self.d_v).transpose(1,2)  # V: [batch_size, n_heads, len_v(=len_k), d_v]
+        attn_mask_new = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1) # attn_mask : [batch_size, n_heads, seq_len, seq_len]
+        # 基于点乘相似度得到经过注意力加成后的结果（经过强化或者减弱其中特征）
+        context, attn = self.sdp(Q, K, V, attn_mask_new)
+        context = context.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.d_v) # context: [batch_size, len_q, n_heads * d_v]
+        # 交给全连接进行线性变化
+        output = self.fc(context) # [batch_size, len_q, d_model]
+        # add+ln
+        output = self.add_norm(output + residual)
+        return output, attn
+
+mha = MultiHeadAttention(parameter).cuda()
+mask = get_attn_pad_mask(x_len,x_len)
+out = mha(seqs,seqs,seqs,mask)
+
+#2.3.1  Feed Forward Network----------------------
+
+class PoswiseFeedForwardNet(nn.Module):
+    def __init__(self,parameter):
+        self.d_ff,self.d_model = parameter['d_ff'],parameter['d_model']
+        super(PoswiseFeedForwardNet, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(self.d_model, self.d_ff, bias=False),
+            nn.ReLU(),
+            nn.Linear(self.d_ff, self.d_model, bias=False)
+        )
+        self.add_norm = nn.LayerNorm(self.d_model)
+    def forward(self, inputs):
+        '''
+        inputs: [batch_size, seq_len, d_model]
+        '''
+        residual = inputs
+        # 所谓的ffn就是两次线性变化，中间一个激活函数，提供的就是非线性结果，加强模型表现，也可以去除；
+        # 值得注意的是bert里面ffn使用的激活函数是glu
+        output = self.fc(inputs)
+        return self.add_norm(output + residual) # [batch_size, seq_len, d_model]
+    
+#2.4  编码层==================
+
+# 多头注意力机制+ffn构成一个transformerEncoder，多个transformerEncoder，可以理解为多个lstm
+class EncoderLayer(nn.Module):
+    def __init__(self,parameter):
+        super(EncoderLayer, self).__init__()
+        device = parameter['device']
+        self.enc_self_attn = MultiHeadAttention(parameter).to(device)
+        self.pos_ffn = PoswiseFeedForwardNet(parameter).to(device)
+
+    def forward(self, enc_inputs, enc_self_attn_mask):
+        '''
+        enc_inputs: [batch_size, src_len, d_model]
+        enc_self_attn_mask: [batch_size, src_len, src_len]
+        '''
+        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) # enc_inputs to same Q,K,V
+        enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size, src_len, d_model]
+        return enc_outputs, attn
+    
+# 在多个transformerEncoder上补上原始词embedding和位置embedding
+class Encoder(nn.Module):
+    def __init__(self,parameter):
+        super(Encoder, self).__init__()
+        n_layers = parameter['n_layers']
+        self.pos_emb = PositionalEncoding(parameter)
+        self.layers = nn.ModuleList([EncoderLayer(parameter) for _ in range(n_layers)])
+
+    def forward(self, enc_inputs,len_inputs):
+        '''
+        enc_inputs: [batch_size, src_len, d_model]
+        '''
+        enc_outputs = self.pos_emb(enc_inputs.transpose(0, 1)).transpose(0, 1) # [batch_size, src_len, d_model]
+        enc_self_attn_mask = get_attn_pad_mask(len_inputs, len_inputs) # [batch_size, src_len, src_len]
+        enc_self_attns = []
+        # 多个transformerEncoder进行特征提取，不断加强或者减弱对应特征
+        for layer in self.layers:
+            # 有点类似于最后一层隐层的输出和历史的注意力状态
+            enc_outputs, enc_self_attn = layer(enc_outputs, enc_self_attn_mask)
+            enc_self_attns.append(enc_self_attn)
+        return enc_outputs, enc_self_attns
+    
+# hvae a test
+test = Encoder(parameter).to(device)
+context,attns = test(batch_x,x_len)
+batch_x.shape,context.shape
+
+# 所谓的解码就是2个多头注意力机制+1个ffn
+class DecoderLayer(nn.Module):
+    def __init__(self,parameter):
+        super(DecoderLayer, self).__init__()
+        device = parameter['device']
+        self.dec_self_attn = MultiHeadAttention(parameter)
+        self.dec_enc_attn = MultiHeadAttention(parameter)
+        self.pos_ffn = PoswiseFeedForwardNet(parameter)
+
+    def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
+        '''
+        dec_inputs: [batch_size, tgt_len, d_model]
+        enc_outputs: [batch_size, src_len, d_model]
+        dec_self_attn_mask: [batch_size, tgt_len, tgt_len]
+        dec_enc_attn_mask: [batch_size, tgt_len, src_len]
+        '''
+        # 这里和seq2seq一样完全teacherforce，如果使用部分可以随机化其中部分词
+        # 其中这里的处理需要参考上图，第一个多头注意力机制输入是，都是用于teacherforce的输入；
+        dec_outputs, dec_self_attn = self.dec_self_attn(dec_inputs, dec_inputs, dec_inputs, dec_self_attn_mask)
+        # 第二个多头注意机制，其中两头内容是编码器的输出，一个是第一个多头注意力机制的输出
+        dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_outputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
+        # 最后通过一个ffn输出最后结果
+        dec_outputs = self.pos_ffn(dec_outputs) # [batch_size, tgt_len, d_model]
+        return dec_outputs, dec_self_attn, dec_enc_attn
+    
+test = DecoderLayer(parameter).to(device)
+batch_x.shape,batch_x.shape,get_attn_pad_mask(x_len,x_len).shape,get_attn_pad_mask(x_len,x_len).shape
+
+# 完整的解码器也包括有位置层那块的编码，原因是teacherforce的输入，然后就是加上上面解码层的transformerDecoder，
+# 中间有涉及到掩码可暂时不用管
+def get_attn_subsequence_mask(seq):
+    '''
+    seq: [batch_size, tgt_len]
+    '''
+    global device
+    attn_shape = [seq.size(0), seq.size(1), seq.size(1)]
+    subsequence_mask = np.triu(np.ones(attn_shape), k=1) # Upper triangular matrix
+    subsequence_mask = torch.from_numpy(subsequence_mask).byte()
+    return subsequence_mask.to(device) # [batch_size, tgt_len, tgt_len]
+
+class Decoder(nn.Module):
+    def __init__(self,parameter):
+        super(Decoder, self).__init__()
+        n_layers = parameter['n_layers'] 
+        self.pos_emb = PositionalEncoding(parameter)
+        self.layers = nn.ModuleList([DecoderLayer(parameter) for _ in range(n_layers)])
+
+    def forward(self, dec_inputs, len_dec_inputs,len_enc_inputs, enc_outputs):
+        '''
+        dec_inputs: [batch_size, tgt_len]
+        enc_intpus: [batch_size, src_len]
+        enc_outputs: [batsh_size, src_len, d_model]
+        '''
+        dec_outputs = self.pos_emb(dec_inputs.transpose(0, 1)).transpose(0, 1) # [batch_size, tgt_len, d_model]
+        dec_self_attn_pad_mask = get_attn_pad_mask(len_dec_inputs, len_dec_inputs) # [batc_size, tgt_len, tgt_len]
+        dec_self_attn_subsequence_mask = get_attn_subsequence_mask(dec_inputs) # [batch_size, tgt_len, tgt_len]
+        dec_self_attn_mask = torch.gt((dec_self_attn_pad_mask + dec_self_attn_subsequence_mask), 0) # [batch_size, tgt_len, tgt_len]
+        dec_enc_attn_mask = get_attn_pad_mask(len_dec_inputs, len_enc_inputs) # [batc_size, tgt_len, src_len]
+        dec_self_attns, dec_enc_attns = [], []
+        for layer in self.layers:
+            # dec_outputs: [batch_size, tgt_len, d_model], dec_self_attn: [batch_size, n_heads, tgt_len, tgt_len], dec_enc_attn: [batch_size, h_heads, tgt_len, src_len]
+#             print(dec_outputs.shape, enc_outputs.shape, dec_self_attn_mask.shape, dec_enc_attn_mask.shape)
+            dec_outputs, dec_self_attn, dec_enc_attn = layer(dec_outputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask)
+            dec_self_attns.append(dec_self_attn)
+            dec_enc_attns.append(dec_enc_attn)
+        return dec_outputs, dec_self_attns, dec_enc_attns
+    
+# have a test
+test = Decoder(parameter).to(device)
+enc = Encoder(parameter).to(device)
+context,attns = enc(batch_x,x_len)
+dec_outputs, dec_self_attns, dec_enc_attns = test(batch_y,y_len,x_len,context)
+dec_outputs.shape,batch_y.shape
+
+#2.6  完成transformer-------------------------------------
+# 所谓的transformer结构上和seq2seq基本一致，只是采用的特征提取器是基于多头注意力机制和ffn的
+class Transformer(nn.Module):
+    def __init__(self,parameter):
+        device = parameter['device']
+        d_model = parameter['d_model']
+        taget_vocab_size = parameter['taget_vocab_size']
+        super(Transformer, self).__init__()
+        self.encoder = Encoder(parameter).to(device)
+        self.decoder = Decoder(parameter).to(device)
+        self.projection = nn.Linear(d_model, taget_vocab_size, bias=False).to(device)
+    def forward(self, enc_inputs,len_inputs, dec_inputs,len_dec_inputs):
+        enc_outputs, enc_self_attns = self.encoder(enc_inputs,len_inputs)
+        # 这里需要注意，做法的seq2seq一致训练时候，因为知道完整的输入和输出因此可以直接处理，但是推理阶段，因为不知道，所以需要逐个处理
+        dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs,len_dec_inputs, len_inputs, enc_outputs)
+        dec_logits = self.projection(dec_outputs) # dec_logits: [batch_size, tgt_len, tgt_vocab_size]
+        return dec_logits.view(-1, dec_logits.size(-1)), enc_self_attns, dec_self_attns, dec_enc_attns
+    
+# 这样就完成了完整 的transformer
+
+test = Transformer(parameter).to(parameter['device'])
+a = test(batch_x,x_len,batch_y,y_len)
+a[0].shape,batch_y.shape
+
+#3 模型训练=============================================
+import os
+import shutil
+import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
+
+# 记录日志
+# shutil.rmtree('transformer') if os.path.exists('transformer') else 1
+writer = SummaryWriter('./transformer', comment='transformer')
+
+# 构建模型
+model = Transformer(parameter).to(parameter['device'])
+
+# 确定训练模式
+model.train()
+
+# 确定优化器和损失
+optimizer = torch.optim.SGD(model.parameters(),lr=parameter['lr'], momentum=parameter['momentum'], nesterov=True)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
+criterion = nn.CrossEntropyLoss(ignore_index=0)
+
+# 准备迭代器
+train_yield = batch_yield(parameter,np.array(ins),np.array(outs))
+
+# 记录loss
+loss_cal = []
+min_loss = float('inf')
+
+while 1:
+    batch_x,batch_y,batch_y2,x_len,y_len,y2_len,epoch,keys = next(data_set)
+    if keys:
+        outputs, enc_self_attns, dec_self_attns, dec_enc_attns = model(batch_x,x_len,batch_y,y_len)
+        loss = criterion(outputs, batch_y2.view(-1))
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        loss_cal.append(loss.item())
+        if epoch is not None:
+            if (epoch+1)%1 == 0:
+                loss_cal = sum(loss_cal)/len(loss_cal)
+                if loss_cal < min_loss:
+                    min_loss = loss_cal
+                    torch.save(model.state_dict(), 'model-transformer.h5')
+                print('epoch [{}/{}], Loss: {:.4f}'.format(epoch+1, \
+                                                       parameter['epoch'],loss_cal))
+            loss_cal = [loss.item()]
+            scheduler.step()
+        
+    else:
+        break
