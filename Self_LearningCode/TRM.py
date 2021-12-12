@@ -21,7 +21,7 @@ def make_batch(sentences):
 
 
 
-## 10
+# # 10
 def get_attn_subsequent_mask(seq):
     """
     seq: [batch_size, tgt_len]
@@ -33,7 +33,7 @@ def get_attn_subsequent_mask(seq):
     return subsequence_mask  # [batch_size, tgt_len, tgt_len]
 
 
-## 7. ScaledDotProductAttention
+# # 7. ScaledDotProductAttention
 class ScaledDotProductAttention(nn.Module):
     def __init__(self):
         super(ScaledDotProductAttention, self).__init__()
@@ -55,14 +55,17 @@ class ScaledDotProductAttention(nn.Module):
         return context, attn
 
 
-## 6. MultiHeadAttention
+# # 6. MultiHeadAttention
 class MultiHeadAttention(nn.Module):
     def __init__(self):
         super(MultiHeadAttention, self).__init__()
-        ## 输入进来的QKV是相等的，我们会使用映射linear做一个映射得到参数矩阵Wq, Wk,Wv
+	
+        # 输入进来的QKV是相等的，我们会使用映射linear做一个映射得到参数矩阵Wq, Wk,Wv
         self.W_Q = nn.Linear(d_model, d_k * n_heads) #512x64*8->512x512
         self.W_K = nn.Linear(d_model, d_k * n_heads)
         self.W_V = nn.Linear(d_model, d_v * n_heads)
+	
+	#Add&Norm
         self.linear = nn.Linear(n_heads * d_v, d_model)#8*64x512->512x512
         self.layer_norm = nn.LayerNorm(d_model) #归一化
 
@@ -94,23 +97,23 @@ class MultiHeadAttention(nn.Module):
         return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model] ::1x5x512
 
 
-## 8. PoswiseFeedForwardNet
+# # 8. PoswiseFeedForwardNet
 class PoswiseFeedForwardNet(nn.Module):
     def __init__(self):
         super(PoswiseFeedForwardNet, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
+        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1) #卷积不是越卷越小吗，怎么可能从512卷积成2048？推测是每个kernel卷积出1个特征，一共2048个卷积核
         self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
         self.layer_norm = nn.LayerNorm(d_model)
 
     def forward(self, inputs):
         residual = inputs # inputs : [batch_size, len_q, d_model]::1x5x512
-        output = nn.ReLU()(self.conv1(inputs.transpose(1, 2))) #output::1x2048x5为什么是这样？
+        output = nn.ReLU()(self.conv1(inputs.transpose(1, 2))) #output::1x2048x5 为什么是这样？
         output = self.conv2(output).transpose(1, 2) #重新由1x2048X5 变成1x5x512
         return self.layer_norm(output + residual) #残差
 
 
 
-## 4. get_attn_pad_mask
+# # 4. get_attn_pad_mask
 
 ## 比如说，我现在的句子长度是5，在后面注意力机制的部分，我们在计算出来QK转置除以根号之后，softmax之前，我们得到的形状
 ## len_input * len*input  代表每个单词对其余包含自己的单词的影响力
@@ -129,7 +132,7 @@ def get_attn_pad_mask(seq_q, seq_k):
     return pad_attn_mask.expand(batch_size, len_q, len_k)  # batch_size x len_q x len_k ::[[[False, False, False, False,  True]]]->变成5x5
 
 
-## 3. PositionalEncoding 代码实现
+# # 3. PositionalEncoding 代码实现
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -140,7 +143,7 @@ class PositionalEncoding(nn.Module):
         ##假设我的demodel是512，2i那个符号中i从0取到了255，那么2i对应取值就是0,2,4...510
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
+        pe = torch.zeros(max_len, d_model) #max_len是什么？
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)## 这里需要注意的是pe[:, 0::2]这个用法，就是从0开始到最后面，补长为2，其实代表的就是偶数位置
@@ -160,7 +163,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-## 5. EncoderLayer ：包含两个部分，多头注意力机制和前馈神经网络
+# # 5. EncoderLayer ：包含两个部分，多头注意力机制和前馈神经网络
 class EncoderLayer(nn.Module):
     def __init__(self):
         super(EncoderLayer, self).__init__()
@@ -174,7 +177,7 @@ class EncoderLayer(nn.Module):
         return enc_outputs, attn
 
 
-## 2. Encoder 部分包含三个部分：词向量embedding，位置编码部分，注意力层及后续的前馈神经网络
+# # 2. Encoder 部分包含三个部分：词向量embedding，位置编码部分，注意力层及后续的前馈神经网络
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -201,13 +204,13 @@ class Encoder(nn.Module):
             enc_self_attns.append(enc_self_attn)
         return enc_outputs, enc_self_attns #enc_outputs是最终Ecoder模块的输出1x5x5132 enc_self_attns保存了6层Encoder的enc_self_attn(1x8x5x5)
 
-## 10.
+# # 10.
 class DecoderLayer(nn.Module):
     def __init__(self):
         super(DecoderLayer, self).__init__()
-        self.dec_self_attn = MultiHeadAttention() #多头自注意力
-        self.dec_enc_attn = MultiHeadAttention() #多头相互注意力
-        self.pos_ffn = PoswiseFeedForwardNet()
+        self.dec_self_attn = MultiHeadAttention() #多头自注意力 多头里包含Add&Norm
+        self.dec_enc_attn = MultiHeadAttention()  #多头相互注意力-->对比EncoderLayer
+        self.pos_ffn = PoswiseFeedForwardNet()    #前馈，其中包含Add&Norm
 
     def forward(self, dec_inputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask):
 	
@@ -217,12 +220,12 @@ class DecoderLayer(nn.Module):
 	# #交互注意力 Qx:dec_outputs Kx:enc_outputs Vx:enc_outputs
         dec_outputs, dec_enc_attn = self.dec_enc_attn(dec_outputs, enc_outputs, enc_outputs, dec_enc_attn_mask)
 	
-	# 前馈神经网络
+	# 前馈神经网络+残差
         dec_outputs = self.pos_ffn(dec_outputs)
 	
         return dec_outputs, dec_self_attn, dec_enc_attn
 
-## 9. Decoder
+# # 9. Decoder
 
 class Decoder(nn.Module):
     def __init__(self):
@@ -265,45 +268,54 @@ class Decoder(nn.Module):
 
         dec_self_attns, dec_enc_attns = [], []
         for layer in self.layers:
-            dec_outputs, dec_self_attn, dec_enc_attn = layer(dec_outputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask)
+            dec_outputs, dec_self_attn, dec_enc_attn = layer(dec_outputs, enc_outputs, dec_self_attn_mask, dec_enc_attn_mask) #每一层的输出dec_outputs作为下一层的输入
             dec_self_attns.append(dec_self_attn)
             dec_enc_attns.append(dec_enc_attn)
         return dec_outputs, dec_self_attns, dec_enc_attns
 
 
-## 1. 从整体网路结构来看，分为三个部分：编码层，解码层，输出层
+# # 1. 从整体网路结构来看，分为三个部分：编码层，解码层，输出层
 class Transformer(nn.Module):
     def __init__(self):
         super(Transformer, self).__init__()
-        self.encoder = Encoder()  ## 编码层
-        self.decoder = Decoder()  ## 解码层
-        self.projection = nn.Linear(d_model, tgt_vocab_size, bias=False) ## 输出层 d_model 是我们解码层每个token输出的维度大小，之后会做一个 tgt_vocab_size 大小的softmax
-    def forward(self, enc_inputs, dec_inputs):
-        # # 这里有两个数据进行输入，一个是enc_inputs 形状为[batch_size, src_len]，主要是作为编码段的输入，一个dec_inputs，形状为[batch_size, tgt_len]，主要是作为解码端的输入
+        self.encoder = Encoder()  # # 编码层 1x5--->>1x5x512
+        self.decoder = Decoder()  # # 解码层 1x5x512 --->>1x5x512
+	
+	# 输出层 d_model 是我们解码层每个token输出的维度大小，之后会做一个 tgt_vocab_size 大小的softmax
+        self.projection = nn.Linear(d_model, tgt_vocab_size, bias=False) #1x5x512--->>1x5x7 相当于7分类    看论文流程图里这个linear后面应该还有个softmax
+	
+    def forward(self, enc_inputs, dec_inputs): #enc_inputs:[[1, 2, 3, 4, 0]] dec_inputs:[[5, 1, 2, 3, 4]] batch_size=1
+	
+        # # 这里有两个数据进行输入，一个是enc_inputs 形状为[batch_size, src_len]，主要是作为编码端的输入，一个dec_inputs，形状为[batch_size, tgt_len]，主要是作为解码端的输入
 
         # # enc_inputs作为输入 形状为[batch_size, src_len]，输出由自己的函数内部指定，想要什么指定输出什么，可以是全部tokens的输出，可以是特定每一层的输出；也可以是中间某些参数的输出；
         # # enc_outputs就是主要的输出，enc_self_attns这里没记错的是QK转置相乘之后softmax之后的矩阵值，代表的是每个单词和其他单词相关性；
-        enc_outputs, enc_self_attns = self.encoder(enc_inputs)
+        
+        #输入1x5--->>输出1x5x512
+        enc_outputs, enc_self_attns = self.encoder(enc_inputs) 
 
         # # dec_outputs 是decoder主要输出，用于后续的linear映射； dec_self_attns类比于enc_self_attns 是查看每个单词对decoder中输入的其余单词的相关性；dec_enc_attns是decoder中每个单词对encoder中每个单词的相关性；
         # 注意输入enc_inputs是怎么用？
-        dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs)
+	
+	 #输入 dec_inputs:1x5 enc_inputs:1x5  enc_outputs:1x5x512 --->>输出 dec_outputs::1x5x512
+        dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs) #为什么还需要enc_inputs？
 
-        # # dec_outputs做映射到词表大小
-        dec_logits = self.projection(dec_outputs) # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
+        # # dec_outputs做映射到词表大小 输入 1x5x512--->> 输出1x5x7  因为输出有7种可能的word
+        dec_logits = self.projection(dec_outputs) # dec_logits::[batch_size x src_vocab_size x tgt_vocab_size] ::1x5x7
+	
         return dec_logits.view(-1, dec_logits.size(-1)), enc_self_attns, dec_self_attns, dec_enc_attns
 
 
 
 if __name__ == '__main__':
 
-    ## 句子的输入部分，
-    sentences = ['ich mochte ein bier P', 'S i want a beer', 'i want a beer E']
+    # 句子的输入部分，
+    sentences = ['ich mochte ein bier P', 'S i want a beer', 'i want a beer E'] #前两个是做输入，第三个做输出，Transformer设计是用来解决翻译问题
 
 
     # Transformer Parameters
     # Padding Should be Zero
-    ## 构建词表
+    # 构建词表
     src_vocab = {'P': 0, 'ich': 1, 'mochte': 2, 'ein': 3, 'bier': 4}
     src_vocab_size = len(src_vocab)
 
@@ -313,25 +325,34 @@ if __name__ == '__main__':
     src_len = 5 # length of source
     tgt_len = 5 # length of target
 
-    ## 模型参数
+    # 全局模型参数
     d_model = 512  # Embedding Size
     d_ff = 2048  # FeedForward dimension
     d_k = d_v = 64  # dimension of K(=Q), V
     n_layers = 6  # number of Encoder of Decoder Layer
     n_heads = 8  # number of heads in Multi-Head Attention
 
+    #模型初始化
     model = Transformer()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    enc_inputs, dec_inputs, target_batch = make_batch(sentences)
+    
+    #准备好训练数据-->需要2个输入 1个输出,此处按index编码
+    #注意这里bach_size=1,只是为了演示方便，实际模型训练时bach_size不为1
+    enc_inputs, dec_inputs, target_batch = make_batch(sentences) #enc_inputs: [[1, 2, 3, 4, 0]]   dec_inputs: [[5, 1, 2, 3, 4]] target_batch: [[1, 2, 3, 4, 6]]
 
     for epoch in range(20):
         optimizer.zero_grad()
-        outputs, enc_self_attns, dec_self_attns, dec_enc_attns = model(enc_inputs, dec_inputs)
+	
+	#模型训练
+        outputs, enc_self_attns, dec_self_attns, dec_enc_attns = model(enc_inputs, dec_inputs) #输入1x5和1x5 --->> 1x5x7 输出是7分类的概率值
+	
+	#计算损失
         loss = criterion(outputs, target_batch.contiguous().view(-1))
         print('Epoch:', '%04d' % (epoch + 1), 'cost =', '{:.6f}'.format(loss))
+	
+	#反向传播
         loss.backward()
         optimizer.step()
 
