@@ -1,0 +1,3 @@
+注意：
+grade和keyword文件夹中的jupyter文件只是为了训练模型和测试模型
+真正使用模型推理的文件是grade_mode.py和keyword_model.py
