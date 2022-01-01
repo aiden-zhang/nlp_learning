@@ -78,18 +78,21 @@ def build_dataSet(data,parameter):
     parameter['output_size'] = len(set(labels))
     return np.array(chars),np.array(labels)
 
-def batch_yield(chars,labels,parameter,shuffle = True):
+def batch_yield(chars,labels,parameter,shuffle = True):#chars.__len__():306113
     for train_epoch in range(parameter['epoch']):
         if shuffle:
             permutation = np.random.permutation(len(chars))
             chars = chars[permutation]    #打乱顺序
             labels = labels[permutation]  #打乱顺序
         max_len = 0
-        batch_x,batch_y = [],[]
-        for iters in tqdm(range(len(chars))):
-            batch_ids = itemgetter(*chars[iters])(parameter['char2ind']) #从parameter['char2ind']中取chars[iters]对应char的index
+        batch_x,batch_y = [],[] #是一个batch的训练集
+        #循环306113,每次满足len(batch_x) = parameter['batch_size']生成一个batch的训练集
+        for iters in tqdm(range(len(chars))): 
+            
+            #从parameter['char2ind']中取chars[iters]对应一个句子的每个char的index
+            batch_ids = itemgetter(*chars[iters])(parameter['char2ind'])
             try:
-                batch_ids = list(batch_ids)
+                batch_ids = list(batch_ids) #元祖转换成list，一个元素时转换失败
             except:
                 batch_ids = [batch_ids,0]
             if len(batch_ids) > max_len:
@@ -97,16 +100,23 @@ def batch_yield(chars,labels,parameter,shuffle = True):
             batch_x.append(batch_ids)
             batch_y.append(labels[iters])
             #print(f"max_len:{max_len}")
+            
+            #其实是当len(batch_x) = parameter['batch_size']的时候再将index向量化
             if len(batch_x) >= parameter['batch_size']:
-                #将由index构成的batch_x转换成由wordvect构成;根据x_ids查wordvect，并用0补齐到max_len
+                
+                #将由index构成的batch_x转换成由wordvect构成;
+                #根据x_ids查wordvect，并用<pad>对应的embeding补齐到max_len，parameter['ind2embeding'][0]是<pad>对应的embeding
                 batch_x = [np.array(list(itemgetter(*x_ids)(parameter['ind2embeding']))+[parameter['ind2embeding'][0]]*(max_len-len(x_ids))) for x_ids in batch_x] 
                 device = parameter['cuda']
+                
+                #向量化后batch_x:10x31x300，其中31是这个batch的最大长度，每个batch不一样，这在后面训练不会有问题吗？
                 yield torch.from_numpy(np.array(batch_x)).to(device),torch.from_numpy(np.array(batch_y)).to(device).long(),True,None
                 max_len,batch_x,batch_y = 0,[],[]
                 
         #最后剩余少于batch_size再用下面代码做处理
         batch_x = [np.array(list(itemgetter(*x_ids)(parameter['ind2embeding']))+[parameter['ind2embeding'][0]]*(max_len-len(x_ids))) for x_ids in batch_x]
         device = parameter['cuda']
+        
         yield torch.from_numpy(np.array(batch_x)).to(device),torch.from_numpy(np.array(batch_y)).to(device).long(),True,train_epoch
         max_len,batch_x,batch_y = 0,[],[]
         
@@ -153,7 +163,7 @@ if __name__== "__main__":
     
 
 #准备数据====================================================================================
-    if os.path.exists('dataSet_textClssi.pkl') and os.path.exists('parameter_textClssi.pkl'): #如果存在自己open
+    if os.path.exists('dataSet_textClssi.pkl') and os.path.exists('parameter_textClssi.pkl'): #如果存在直接open
         
         [train_chars,test_chars,train_labels,test_labels] = pk.load(open('dataSet_textClssi.pkl','rb'))
         
@@ -163,6 +173,9 @@ if __name__== "__main__":
     else: #不存在则创建
         data = pd.read_csv('data/classification_data.csv')
         print(data[0:10]) #查看下数据格式,主用的inidex列是lable和text
+        
+        #得到的chars元素是382642个切分了的句子，lables是对应句子的382642个标签
+        #该接口还生成了:ind2char  #index->字  这里index跟频次无关，按顺利来,# char2ind ,字->index #ind2embeding ,5548x300的词向量
         chars_src,labels_src = build_dataSet(data,parameter)
         
         # 按比例划分训练集和测试集
@@ -170,9 +183,10 @@ if __name__== "__main__":
         pk.dump([train_chars,test_chars,train_labels,test_labels],open('dataSet_textClssi.pkl','wb'))
         pk.dump(parameter,open('parameter_textClssi.pkl','wb'))
     
+    #构建迭代器------------------------------------
     train_yield = batch_yield(train_chars,train_labels,parameter)
     
-    #seqs::10x24x300 label::10x1  keys::True  其中24位句子最大长度，每一句可能不一样
+    #seqs::10x24x300 label::10x1  keys::True  其中24为一个batch中所有句子最大长度，每个batch可能不一样,每个batch长度不一致，后面训练不会有问题吗？
     seqs,label,keys,epoch = next(train_yield)
     
     #sta = time.time()
