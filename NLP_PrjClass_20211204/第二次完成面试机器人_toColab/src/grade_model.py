@@ -35,16 +35,10 @@ def list2torch(a):
     return torch.from_numpy(np.array(a)).long().to(parameter['cuda'])
 
 def load_model(root_path = './'):
-	print('current dir:',os.getcwd())
-	print('root path:',root_path)
 	parameter = pk.load(open(root_path+'parameter.pkl','rb'))
-	
-	#本地切换成用cpu推理
-	parameter['cuda']='cpu'
+	parameter['cuda']='cpu'#cpu推理
 	model = Grade(parameter).to(parameter['cuda'])
-	
-	#重新映射 
-	model.load_state_dict(torch.load(root_path+'grade.h5',map_location='cpu'))
+	model.load_state_dict(torch.load(root_path+'grade.h5',map_location='cpu')) #cpu推理
 	model.eval()
 	return model,parameter
 
@@ -69,14 +63,10 @@ def grade_predict(q,a):
     # print(prob)
     return prob.cpu().item()
 
-import sys,os
-
-#切换路径
+import sys
 sys.path.append('../')
 from path_config import GRADE_MODEL_PATH
-#print(sys.argv[0])
-print('current dir:',os.getcwd())
-model,parameter = load_model(GRADE_MODEL_PATH)  #从'src/grade/'下加载模型
+model,parameter = load_model(GRADE_MODEL_PATH)
 
 
 
