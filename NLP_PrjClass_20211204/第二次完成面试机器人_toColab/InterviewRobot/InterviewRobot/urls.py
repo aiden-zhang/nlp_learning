@@ -19,14 +19,14 @@ urls.py
 from django.contrib import admin
 from django.urls import path
 import sys
-sys.path.append('../')
+sys.path.append('./')
 from run1 import InterviewRobot,pdf2txt_server,key_word_show,get_question,send_answer
 
 
 urlpatterns = [
-    path('InterviewRobot', InterviewRobot),
-    path('pdf2txt/', pdf2txt_server),
+    path('InterviewRobot', InterviewRobot),#总界面渲染后前端呈现
+    path('pdf2txt/', pdf2txt_server),#pdf转txt前端选择文件路径，后端进行处理
     path('key_word_show/', key_word_show),
-    path('get_question/', get_question),
-    path('send_answer/',send_answer),
+    path('get_question/', get_question), #question呈现到前端
+    path('send_answer/',send_answer),#从前端传递面试者答案到后端，计算分数后返回前端进行呈现
 ]

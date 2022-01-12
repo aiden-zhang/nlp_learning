@@ -15,7 +15,7 @@ def pdf2txt(file_name,out_name):
     outfp = open(out_name, 'w', encoding = 'utf-8')
     # 将资源管理器和输出对象聚合
     device = TextConverter(rsrcmgr, outfp, laparams=laparams)
-    with open('../'+file_name, 'rb') as fp:
+    with open(file_name, 'rb') as fp:
         # 创建一个PDF解释器对象
         interpreter = PDFPageInterpreter(rsrcmgr, device)
         # 循环遍历列表，每次处理一个page内容

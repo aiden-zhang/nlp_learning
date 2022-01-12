@@ -37,50 +37,62 @@ torch.__version__
 
 
 def build_dataSet(data,parameter):
-    # 构建训练集（chars，labels），构建词汇表（char2ind，ind2char）
-    chars = [] #5548条数据，且每条被按字切分
-    labels = []#数据对应的标签
-    vocab = defaultdict(int) #保存切分后的字及对应的次数形成的字典 如: {'<pad>': 1, '京': 4127, '城': 6166, '最': 30089, ...}
+    # # 构建训练集（chars，labels），构建词汇表（char2ind，ind2char）构建词向量ind2embeding
+    #1.构建char和其次数对应的字典
+    chars = [] # 382642条数据(句子)，且每条(句子)被按字切分存放
+    labels = []# 数据对应的382642标签
+    vocab = defaultdict(int) #保存切分后的字及对应的次数形成的字典 5548个元素，如: {'<pad>': 1, '京': 4127, '城': 6166, '最': 30089, ...}
     vocab['<pad>'] = parameter['min_count_word']
+    
     for text,label in tqdm(zip(data.text,data.label)):
         chars.append(text.split()) #按字切分后存入chars中
         labels.append(label)
-        for char in chars[-1]:
+        for char in chars[-1]:# append是在list尾部插入，chars[-1]就代表刚刚插入的那条text
             vocab[char] += 1 #统计字出现的字数,共5548个不重复的char
     vocab['<unk>'] = parameter['min_count_word']
-    for char in vocab:
-        if vocab[char] < parameter['min_count_word']:
+    
+    for char in vocab: #取得是vocab.keys()
+        if vocab[char] < parameter['min_count_word']: #vocab[char] 拿到的是vocab.values()中的每一个数字
             del vocab[char] #次数< min_count_word 的字直接删掉
-            
+    print(len(vocab))    #5548
+    
     #构造char->index和index->char对应的字典
     char2ind,ind2char = dict(zip(vocab.keys(),range(len(vocab)))), dict(zip(range(len(vocab)),vocab.keys()))
-    ind2embeding = np.random.randn(len(vocab), parameter['embedding_dim']).astype(np.float32) / np.sqrt(len(vocab)) #随机初始化5548x500
-    # 加载词向量
+    ind2embeding = np.random.randn(len(vocab), parameter['embedding_dim']).astype(np.float32) / np.sqrt(len(vocab)) #随机初始化5548x300
+    
+    # 2. 加载词向量，确定每个char对应的300维的词向量
     w2v = gensim.models.Word2Vec.load('data/wiki.Mode')
-    for ind,i in enumerate(char2ind.keys()): #ind是索引，i才是取到的char
+    
+    for ind,i in enumerate(char2ind.keys()): #ind是索引，i才是取到的char,char2ind:['<pad>', '京', '城', '最', '值', '得', '你', '来', '场', ...,]
         try:
-            embedding = np.asarray(w2v.wv[i], dtype='float32') #取该char对应的300维的wordvect
-            ind2embeding[ind] = embedding
+            embedding = np.asarray(w2v.wv[i], dtype='float32') #从w2v中取char对应的300维的wordvect
+            ind2embeding[ind] = embedding #ind 对应的i是一个字，这里按顺序拿到每个字在wiki.Mode中对应的词向量
         except:
             parameter['num_unknow'] += 1 #wiki.Mode中没有的char
-    parameter['ind2char'] = ind2char
-    parameter['char2ind'] = char2ind
-    parameter['ind2embeding'] = ind2embeding
+    #这里有个疑问，parameter['num_unknow']=253,但是ind2embeding却有5548个元素，没有抛弃的char吗? char2ind.keys()也是5548个元素。
+      #解答:因为ind2embeding被初始化为5548x300,若有异常抛出，即wiki.Mode中未查到该char的vector，但就用初始化的vector
+      
+    parameter['ind2char'] = ind2char  #index->字  这里index跟频次无关，按顺利来
+    parameter['char2ind'] = char2ind  #字->index
+    parameter['ind2embeding'] = ind2embeding #5548x300
     parameter['output_size'] = len(set(labels))
     return np.array(chars),np.array(labels)
 
-def batch_yield(chars,labels,parameter,shuffle = True):
+def batch_yield(chars,labels,parameter,shuffle = True):#chars.__len__():306113
     for train_epoch in range(parameter['epoch']):
         if shuffle:
             permutation = np.random.permutation(len(chars))
             chars = chars[permutation]    #打乱顺序
             labels = labels[permutation]  #打乱顺序
         max_len = 0
-        batch_x,batch_y = [],[]
-        for iters in tqdm(range(len(chars))):
-            batch_ids = itemgetter(*chars[iters])(parameter['char2ind']) #从parameter['char2ind']中取chars[iters]对应char的index
+        batch_x,batch_y = [],[] #是一个batch的训练集
+        #循环306113,每次满足len(batch_x) = parameter['batch_size']生成一个batch的训练集
+        for iters in tqdm(range(len(chars))): 
+            
+            #从parameter['char2ind']中取chars[iters]对应一个句子的每个char的index
+            batch_ids = itemgetter(*chars[iters])(parameter['char2ind'])
             try:
-                batch_ids = list(batch_ids)
+                batch_ids = list(batch_ids) #元祖转换成list，一个元素时转换失败
             except:
                 batch_ids = [batch_ids,0]
             if len(batch_ids) > max_len:
@@ -88,16 +100,23 @@ def batch_yield(chars,labels,parameter,shuffle = True):
             batch_x.append(batch_ids)
             batch_y.append(labels[iters])
             #print(f"max_len:{max_len}")
+            
+            #其实是当len(batch_x) = parameter['batch_size']的时候再将index向量化
             if len(batch_x) >= parameter['batch_size']:
-                #将由index构成的batch_x转换成由wordvect构成;根据x_ids查wordvect，并用0补齐到max_len
+                
+                #将由index构成的batch_x转换成由wordvect构成;
+                #根据x_ids查wordvect，并用<pad>对应的embeding补齐到max_len，parameter['ind2embeding'][0]是<pad>对应的embeding
                 batch_x = [np.array(list(itemgetter(*x_ids)(parameter['ind2embeding']))+[parameter['ind2embeding'][0]]*(max_len-len(x_ids))) for x_ids in batch_x] 
                 device = parameter['cuda']
+                
+                #向量化后batch_x:10x31x300，其中31是这个batch的最大长度，每个batch不一样，这在后面训练不会有问题吗？
                 yield torch.from_numpy(np.array(batch_x)).to(device),torch.from_numpy(np.array(batch_y)).to(device).long(),True,None
                 max_len,batch_x,batch_y = 0,[],[]
                 
         #最后剩余少于batch_size再用下面代码做处理
         batch_x = [np.array(list(itemgetter(*x_ids)(parameter['ind2embeding']))+[parameter['ind2embeding'][0]]*(max_len-len(x_ids))) for x_ids in batch_x]
         device = parameter['cuda']
+        
         yield torch.from_numpy(np.array(batch_x)).to(device),torch.from_numpy(np.array(batch_y)).to(device).long(),True,train_epoch
         max_len,batch_x,batch_y = 0,[],[]
         
@@ -130,7 +149,7 @@ if __name__== "__main__":
         'char2ind':None,
         'ind2char':None,
         'ind2embeding':None,
-        'output_size': None,
+        'output_size': None, #由分类的标签数决定
         'epoch':20,
         'batch_size':10,
         'embedding_dim':300,
@@ -144,23 +163,30 @@ if __name__== "__main__":
     
 
 #准备数据====================================================================================
-    if os.path.exists('dataSet_textClssi.pkl') and os.path.exists('parameter_textClssi.pkl'):
+    if os.path.exists('dataSet_textClssi.pkl') and os.path.exists('parameter_textClssi.pkl'): #如果存在直接open
+        
         [train_chars,test_chars,train_labels,test_labels] = pk.load(open('dataSet_textClssi.pkl','rb'))
+        
         parameter = pk.load(open('parameter_textClssi.pkl','rb'))
         device = torch.device('cpu')
         parameter['cuda'] = device
-    else:
+    else: #不存在则创建
         data = pd.read_csv('data/classification_data.csv')
+        print(data[0:10]) #查看下数据格式,主用的inidex列是lable和text
+        
+        #得到的chars元素是382642个切分了的句子，lables是对应句子的382642个标签
+        #该接口还生成了:ind2char  #index->字  这里index跟频次无关，按顺利来,# char2ind ,字->index #ind2embeding ,5548x300的词向量
         chars_src,labels_src = build_dataSet(data,parameter)
         
         # 按比例划分训练集和测试集
-        train_chars,test_chars,train_labels,test_labels = train_test_split(chars_src,labels_src, test_size=0.2, random_state=42)
+        train_chars,test_chars, train_labels,test_labels = train_test_split(chars_src,labels_src, test_size=0.2, random_state=42)
         pk.dump([train_chars,test_chars,train_labels,test_labels],open('dataSet_textClssi.pkl','wb'))
         pk.dump(parameter,open('parameter_textClssi.pkl','wb'))
     
+    #构建迭代器------------------------------------
     train_yield = batch_yield(train_chars,train_labels,parameter)
     
-    #seqs::10x24x300 label::10x1  keys::True  其中24位句子最大长度，每一句可能不一样
+    #seqs::10x24x300 label::10x1  keys::True  其中24为一个batch中所有句子最大长度，每个batch可能不一样,每个batch长度不一致，后面训练不会有问题吗？
     seqs,label,keys,epoch = next(train_yield)
     
     #sta = time.time()

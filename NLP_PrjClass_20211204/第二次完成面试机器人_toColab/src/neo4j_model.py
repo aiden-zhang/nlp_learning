@@ -64,13 +64,14 @@ class GraphSearch():
             feature_left = list(itemgetter(*rand)(feature_left))
             return feature_left
 
-        
+    #根据关键词搜索问题
     def feature2question(self,feature_list):
         sql = "match p = (a:question)-[b:question2feature]->(c:feature) where c.name in %s return a.name"%(feature_list)
         question = self.graph.run(sql).data()
         question = [i['a.name'] for i in question]
         return question
-    
+		
+    #根据问题搜索答案
     def question2answer(self,question_list):
         answer_list = []
         for question in question_list:
@@ -79,7 +80,8 @@ class GraphSearch():
             answers = [i['c.name'] for i in answers]
             answer_list.append(answers)
         return answer_list
-    
+		
+    #根据答案搜索对应关键词
     def answer2feature(self,answer_list):
         feature_list = []
         for answers in answer_list:
@@ -89,13 +91,20 @@ class GraphSearch():
             feature_list.append(list(set(feature)))
         return feature_list
     
+	#把前面几个问题串起来，提问关键词->问题->答案->答案关键词
     def neo4j_predict(self,feature_list):
         if len(feature_list) > 0:
             feature_list = list(set(feature_list))
+			
+			#得到问题
             question = self.feature2question(feature_list)
-            rand = random.sample(range(len(question)), min(20,len(question)))
+            rand = random.sample(range(len(question)), min(20,len(question)))#？
             question = list(itemgetter(*rand)(question))
+			
+			#得到答案
             answer = self.question2answer(question)
+			
+			#得到答案对应的关键词
             feature = self.answer2feature(answer)
         else:
             feature = []

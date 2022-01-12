@@ -13,35 +13,32 @@ import numpy as np
 max_len = 512-25
 
 class bert_crf(BertPreTrainedModel):
-	def __init__(self, config,parameter):
-		super(bert_crf, self).__init__(config)
-		self.num_labels = config.num_labels
-		self.bert = BertModel(config)
-		self.dropout = nn.Dropout(config.hidden_dropout_prob)
-		embedding_dim = parameter['d_model']
-		output_size = parameter['output_size']
-		self.fc = nn.Linear(embedding_dim, output_size)
-		self.init_weights()
-		
-		self.crf = CRF(output_size,batch_first=True)
-		
-	def forward(self, input_ids, attention_mask=None, token_type_ids=None,labels=None):
-		outputs = self.bert(input_ids = input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids)
-		sequence_output = outputs[0]
-		sequence_output = self.dropout(sequence_output)
-		logits = self.fc(sequence_output)
-		return logits
+    def __init__(self, config,parameter):
+        super(bert_crf, self).__init__(config)
+        self.num_labels = config.num_labels
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        embedding_dim = parameter['d_model']
+        output_size = parameter['output_size']
+        self.fc = nn.Linear(embedding_dim, output_size)
+        self.init_weights()
+        
+        self.crf = CRF(output_size,batch_first=True)
+        
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None,labels=None):
+        outputs = self.bert(input_ids = input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids)
+        sequence_output = outputs[0]
+        sequence_output = self.dropout(sequence_output)
+        logits = self.fc(sequence_output)
+        return logits
     
 
 
 def load_model(root_path = './'):
 	parameter = pk.load(open(root_path+'parameter.pkl','rb'))
-	
-	#修改参数
-	parameter['device']='cpu'
+	parameter['device']='cpu' #在cpu上测试推理
 	model = bert_crf(config,parameter).to(parameter['device'])
-	
-	model.load_state_dict(torch.load(root_path+'bert_crf.h5',map_location='cpu'))
+	model.load_state_dict(torch.load(root_path+'bert_crf.h5',map_location='cpu')) #在cpu上测试推理
 	model.eval()
 	return model,parameter
 
@@ -109,11 +106,7 @@ def keyword_predict_long_text(input):
 import sys
 sys.path.append('../')
 from path_config import KEYWORD_MODEL_PATH
-
 config_class, bert_crf, tokenizer_class = BertConfig, bert_crf, BertTokenizer
-
 config = config_class.from_pretrained(KEYWORD_MODEL_PATH+"prev_trained_model")
-
 tokenizer = tokenizer_class.from_pretrained(KEYWORD_MODEL_PATH+"prev_trained_model")
-
 model,parameter = load_model(KEYWORD_MODEL_PATH)

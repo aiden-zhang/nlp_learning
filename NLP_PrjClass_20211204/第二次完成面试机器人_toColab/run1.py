@@ -107,11 +107,16 @@ def send_answer(request):
     score2 = 0
     score3 = 0
     for i in range(len(question)):
+		
+		#1.求问题和面试者答案的余弦相似度
         score1 += max(grade_predict(question[i],answer_person[i]),0)
-
+		
         keyword = keyword_predict_long_text(answer_person[i])
+		
+		#2.面试者答案关键词对标准答案关键词的覆盖率,越大正确率越高
         score2 += len(set(keyword) & set(feature[i]))/len(set(feature[i]))
-
+		
+		#3.面试者答案关键词对考察范围以外其他关键词的覆盖率，覆盖越多越博学
         score3 += len(set(keyword) & set(feature[i]))/len(set(feature_more))
     
     score1 /= len(question)
